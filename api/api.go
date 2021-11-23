@@ -12,6 +12,7 @@ var Router = map[string]func(w http.ResponseWriter, req *http.Request){
 	"/articleDelete": ArticleDelete,
 
 	"/userLogin": UserLogin,
+	"/userRegister": UserRegister,
 }
 
 type Response struct {

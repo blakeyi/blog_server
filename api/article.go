@@ -169,7 +169,7 @@ func ArticleUpdate(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	log.Info(param)
-	data := getUpdateParam(param)
+	data, condition := getUpdateParam(param)
 	col := db.NewCollection("articles")
 	if !primitive.IsValidObjectID(id) {
 		res.SetErrorCode(ErrParam)
@@ -177,9 +177,11 @@ func ArticleUpdate(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	objectid, _ := primitive.ObjectIDFromHex(id)
-	log.Info(data)
 
-	err := col.UpdateOne(bson.M{"_id": objectid}, data)
+	condition["_id"] = objectid
+	log.Info(data)
+	log.Info(condition)
+	err := col.UpdateOne(condition, data)
 	if err != nil {
 		res.SetErrorCode(ErrUpdateFail, err)
 		json.NewEncoder(w).Encode(res)
@@ -239,11 +241,14 @@ func ArticleCreate(w http.ResponseWriter, req *http.Request) {
 
 }
 
-func getUpdateParam(param map[string]interface{}) bson.M {
+// 返回 要更新的数据和额外的定位条件
+// 目前只有comment需要返回额外的条件
+func getUpdateParam(param map[string]interface{}) (bson.M, bson.M)  {
 	data := bson.M{}
+	condtion := bson.M{}
 	operation, ok := param["operation"].(string)
 	if !ok {
-		return bson.M{}
+		return bson.M{}, condtion
 	}
 	var list = []string{
 		"title", "author", "desc", "createtime", "updatetime", "content",
@@ -262,7 +267,7 @@ func getUpdateParam(param map[string]interface{}) bson.M {
 		meta := &MetaInfo{}
 		json.Unmarshal(bytes, meta)
 		log.Info(meta)
-		return updateMeta(*meta)
+		return updateMeta(*meta) , condtion
 	}
 
 	if temp, ok := param["tags"].([]interface{}); ok {
@@ -273,7 +278,7 @@ func getUpdateParam(param map[string]interface{}) bson.M {
 		if operation == "update" {
 			data["tags"] = tags
 		} else {
-			return updateArray(tags, operation, "tags")
+			return updateArray(tags, operation, "tags"), condtion
 		}
 
 	}
@@ -286,7 +291,7 @@ func getUpdateParam(param map[string]interface{}) bson.M {
 		if operation == "update" {
 			data["likeusers"] = likeusers
 		} else {
-			return updateArray(likeusers, operation, "likeusers")
+			return updateArray(likeusers, operation, "likeusers"), condtion
 		}
 	}
 
@@ -307,14 +312,14 @@ func getUpdateParam(param map[string]interface{}) bson.M {
 		if operation == "update" {
 			data["comments"] = comments
 		} else {
-			return updateArray(comments, operation, "comments")
+			return updateComment(comments[0], operation)
 		}
 	}
 
 	update := bson.M{
 		operator.Set: data,
 	}
-	return update
+	return update, condtion
 }
 
 func getCreateParam(param map[string]interface{}, filed string) interface{} {
@@ -351,4 +356,44 @@ func updateArray(arrs interface{}, operation string, property string) bson.M {
 		return bson.M{operator.Pull: bson.M{property: bson.M{operator.In: arrs}}}
 	}
 	return bson.M{}
+}
+
+// 包括增删，不支持修改
+func updateComment(comment *Comment, operation string) (bson.M,  bson.M) {
+	// add 分两种，
+	//1.增加正常评论
+	//2.回复别人评论
+	condition := bson.M{}
+	log.Info(comment.Id.IsZero())
+	if operation == "add" {
+		if comment.Id.IsZero() { // 第一种
+			comment.Id = primitive.NewObjectID()
+			log.Info(comment.Id)
+			comment.OtherComments = make([]OtherComment, 0, 0) // 清空防止输入非法内容
+			return bson.M{operator.Push: bson.M{"comments": comment}}, condition
+		} else { // 第二种
+			objectid, _ := primitive.ObjectIDFromHex(comment.Id.Hex())
+			id := primitive.NewObjectID()
+			otherComment := comment.OtherComments[0]
+			otherComment.Id = id
+			// 注意数组需要由于不知道位置，需要先加$占位，查询条件不需要占位符
+			return bson.M{operator.Push: bson.M{"comments.$.othercomments": otherComment}}, bson.M{"comments._id": objectid}
+		}
+
+	} else if operation == "del" {
+		log.Info(comment)
+		if comment.Id.IsZero() { // 为空不删除
+			return bson.M{}, condition
+		}
+		if len(comment.OtherComments) > 0 {
+			objectid, _ := primitive.ObjectIDFromHex(comment.Id.Hex())
+			id, _ := primitive.ObjectIDFromHex(comment.OtherComments[0].Id.Hex())
+			return bson.M{operator.Pull: bson.M{"comments.$.othercomments": bson.M{"_id":id}}}, bson.M{"comments._id": objectid}
+		} else {
+			id, _ := primitive.ObjectIDFromHex(comment.Id.Hex())
+			return bson.M{operator.Pull: bson.M{"comments": bson.M{"_id":id}}}, condition
+		}
+
+	}
+	return bson.M{}, condition
 }
