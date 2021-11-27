@@ -115,6 +115,7 @@ func ArticleQuery(w http.ResponseWriter, req *http.Request) {
 	ret := col.FindOne(bson.M{"_id": objectid})
 	ret.One(&article)
 	log.Infof("article: %v", article)
+	addArtcileView(id)
 	res.RetContent = article
 	res.SetErrorCode(Succeed)
 	json.NewEncoder(w).Encode(res)
@@ -396,4 +397,17 @@ func updateComment(comment *Comment, operation string) (bson.M,  bson.M) {
 
 	}
 	return bson.M{}, condition
+}
+
+func addArtcileView(id string) error {
+	col := db.NewCollection("articles")
+	data := updateMeta(MetaInfo{
+		Views: 1,
+	})
+
+	objectid, _ := primitive.ObjectIDFromHex(id)
+	condition := bson.M{
+		"_id":objectid,
+	}
+	return col.UpdateOne(condition, data)
 }

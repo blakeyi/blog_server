@@ -23,7 +23,13 @@ func Init() {
 	once.Do(func() {
 		var err error
 		ctx = context.Background()
-		client, err := qmgo.NewClient(ctx, &qmgo.Config{Uri: "mongodb://localhost:27017"})
+		client, err := qmgo.NewClient(ctx, &qmgo.Config{
+			Uri: "mongodb://localhost:17017",
+			Auth: &qmgo.Credential{
+				Username: "root",
+				Password: "yi8316800",
+			},
+		})
 		dataBase = client.Database("blakeyi")
 		if err != nil {
 			logrus.Fatal(err)
